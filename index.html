@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Habits Flip Clock</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Arimo:wght@700&display=swap">
+<style>
+/* Layout: square flip leaves (hours, minutes) centred on a black field; date and ISO week run under them, edge to edge. */
+:root {
+  --void: #000000;        /* field behind the leaves */
+  --leaf-top: #1a1a1a;    /* upper half of a leaf */
+  --leaf-bottom: #151515; /* lower half of a leaf */
+  --seam: #000000;        /* hinge line across the middle */
+  --ink: #b8b8b8;         /* numerals and AM/PM */
+  --dim: #6e6e6e;         /* date line */
+  --shade: rgb(0 0 0 / 0.6); /* shadow on a leaf while it turns */
+  --face: "Helvetica Neue", Helvetica, Arimo, Arial, "Liberation Sans", sans-serif;
+  color-scheme: dark;
+}
+
+html, body { height: 100%; }
+body { background: var(--void); color: var(--ink); overflow: hidden; }
+html.clear, html.clear body { background: transparent; }
+html.clear { color-scheme: normal; } /* a dark scheme here makes browsers paint the embed frame solid */
+
+.stage {
+  box-sizing: border-box;
+  height: 100%;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 16px;
+  display: grid;
+  place-items: center;
+  container-type: size;
+}
+
+/* --c is the size of one leaf: as big as the frame allows, in both directions. */
+.clock {
+  --cols: 2;
+  --gap: 0.06;   /* space between leaves, as a share of one leaf */
+  --foot: 0.17;  /* date line, as a share of one leaf */
+  --c: min(calc(94cqw / (var(--cols) + (var(--cols) - 1) * var(--gap))),
+           calc(92cqh / (1 + var(--foot))));
+  --r: calc(var(--c) * 0.055);
+  --hinge: max(2px, calc(var(--c) * 0.011));
+  --t-fall: 230ms;
+  --t-land: 360ms;
+  display: flex;
+  flex-direction: column;
+}
+html.seconds .clock { --cols: 3; }
+html.no-date .clock { --foot: 0; }
+@supports not (width: 1cqw) {
+  .clock {
+    --c: min(calc((100vw - 40px) / (var(--cols) + (var(--cols) - 1) * var(--gap))),
+             calc((100vh - 40px) / (1 + var(--foot))));
+  }
+}
+
+.cards {
+  display: flex;
+  justify-content: center;
+  gap: calc(var(--c) * var(--gap));
+}
+
+.card {
+  position: relative;
+  flex: none;
+  width: var(--c);
+  height: var(--c);
+  perspective: calc(var(--c) * 4);
+}
+.card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--r);
+  background: var(--seam);
+}
+
+.half {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: calc((var(--c) - var(--hinge)) / 2);
+  overflow: hidden;
+  backface-visibility: hidden;
+}
+.half.top {
+  top: 0;
+  border-radius: var(--r) var(--r) 0 0;
+  background: var(--leaf-top);
+  transform-origin: 50% calc(100% + var(--hinge) / 2);
+}
+.half.bottom {
+  bottom: 0;
+  border-radius: 0 0 var(--r) var(--r);
+  background: var(--leaf-bottom);
+  transform-origin: 50% calc(var(--hinge) / -2);
+}
+
+.num {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: var(--c);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--face);
+  font-weight: 700;
+  font-size: calc(var(--c) * 0.63);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  font-synthesis: none;
+  color: var(--ink);
+}
+.half.bottom .num { top: calc((var(--c) + var(--hinge)) / -2); }
+
+.tag {
+  position: absolute;
+  top: calc(var(--c) * 0.08);
+  left: calc(var(--c) * 0.085);
+  font-family: var(--face);
+  font-weight: 700;
+  font-size: calc(var(--c) * 0.07);
+  line-height: 1;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+}
+
+/* The two moving leaves only show while a number changes. */
+.flap { visibility: hidden; }
+.card.flipping .flap { visibility: visible; }
+.flap::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.flap.top::after { background: linear-gradient(to bottom, transparent, var(--shade)); }
+.flap.bottom::after { background: linear-gradient(to top, transparent, var(--shade)); }
+
+.card.flipping .flap.top {
+  animation: leaf-fall var(--t-fall) cubic-bezier(0.55, 0.05, 0.85, 0.4) both;
+}
+.card.flipping .flap.top::after {
+  animation: shade-in var(--t-fall) ease-in both;
+}
+.card.flipping .flap.bottom {
+  animation: leaf-land var(--t-land) linear var(--t-fall) both;
+}
+.card.flipping .flap.bottom::after {
+  animation: shade-out var(--t-land) ease-out var(--t-fall) both;
+}
+@keyframes leaf-fall {
+  from { transform: rotateX(0deg); }
+  to   { transform: rotateX(-90deg); }
+}
+@keyframes leaf-land {
+  0%   { transform: rotateX(90deg); animation-timing-function: cubic-bezier(0.3, 0.6, 0.5, 1); }
+  68%  { transform: rotateX(0deg);  animation-timing-function: ease-out; }
+  84%  { transform: rotateX(5deg);  animation-timing-function: ease-in; }
+  100% { transform: rotateX(0deg); }
+}
+@keyframes shade-in  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes shade-out { from { opacity: 1; } to { opacity: 0; } }
+
+.meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1em;
+  margin-top: calc(var(--c) * 0.075);
+  font-family: var(--face);
+  font-weight: 700;
+  font-size: max(10px, calc(var(--c) * 0.056));
+  line-height: 1.2;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--dim);
+}
+.meta > span:last-child { margin-right: -0.2em; } /* cancel the trailing letter-space so the week sits flush with the leaf edge */
+.meta .short { display: none; }
+html.no-date .meta { display: none; }
+
+/* Small frames: short date. Thresholds are where one leaf drops below ~190px. */
+@container (max-width: 416px) or (max-height: 240px) {
+  .meta .long { display: none; }
+  .meta .short { display: inline; }
+}
+@container (max-width: 630px) {
+  html.seconds .meta .long { display: none; }
+  html.seconds .meta .short { display: inline; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card.flipping .flap { visibility: hidden; animation: none; }
+}
+</style>
+<script>
+  /* Options for the hosted page, e.g. index.html?24h&seconds or ?bg=clear */
+  (function () {
+    var q = new URLSearchParams(location.search);
+    var off = /^(0|false|no|off)$/i;
+    var cl = document.documentElement.classList;
+    function on(k) { return q.has(k) && !off.test(q.get(k) || ""); }
+    if (on("24h")) cl.add("h24");
+    if (on("seconds")) cl.add("seconds");
+    if (q.has("date") && off.test(q.get("date") || "")) cl.add("no-date");
+    if (/^(clear|none|transparent)$/i.test(q.get("bg") || "")) cl.add("clear");
+  })();
+</script>
+<style>body { margin: 0; }</style>
+</head>
+<body>
+<main class="stage">
+  <div class="clock" id="clock" role="img" aria-label="Current time and date">
+    <div class="cards" id="cards"></div>
+    <div class="meta">
+      <span><span class="long" id="date-long"></span><span class="short" id="date-short"></span></span>
+      <span><span class="long" id="week-long"></span><span class="short" id="week-short"></span></span>
+    </div>
+  </div>
+</main>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var h24 = root.classList.contains("h24");
+  var withSeconds = root.classList.contains("seconds");
+  var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+  var DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  var MONTHS = ["January", "February", "March", "April", "May", "June", "July",
+                "August", "September", "October", "November", "December"];
+
+  function pad(n) { return (n < 10 ? "0" : "") + n; }
+
+  /* ISO 8601 week: weeks start on Monday, week 1 holds the first Thursday. */
+  function isoWeek(d) {
+    var t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    var day = t.getUTCDay() || 7;
+    t.setUTCDate(t.getUTCDate() + 4 - day);
+    var yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+    return Math.ceil(((t - yearStart) / 86400000 + 1) / 7);
+  }
+
+  function makeCard(hasTag) {
+    var el = document.createElement("div");
+    el.className = "card";
+    var parts = {};
+    [["staticTop", "half top"], ["staticBottom", "half bottom"],
+     ["flapTop", "half top flap"], ["flapBottom", "half bottom flap"]].forEach(function (p) {
+      var half = document.createElement("div");
+      half.className = p[1];
+      var num = document.createElement("span");
+      num.className = "num";
+      half.appendChild(num);
+      var tag = null;
+      if (hasTag && p[1].indexOf("top") !== -1) {
+        tag = document.createElement("span");
+        tag.className = "tag";
+        half.appendChild(tag);
+      }
+      el.appendChild(half);
+      parts[p[0]] = { num: num, tag: tag };
+    });
+    var card = { el: el, parts: parts, value: null, tag: null };
+    el.addEventListener("animationend", function (e) {
+      if (e.animationName !== "leaf-land" || e.pseudoElement) return;
+      paint(card.parts.staticBottom, card.value, card.tag);
+      el.classList.remove("flipping");
+    });
+    return card;
+  }
+
+  function paint(part, value, tag) {
+    part.num.textContent = value;
+    if (part.tag) part.tag.textContent = tag || "";
+  }
+
+  function show(card, value, tag, animate) {
+    if (card.value === value && card.tag === tag) return;
+    var oldValue = card.value, oldTag = card.tag;
+    card.value = value;
+    card.tag = tag;
+    var p = card.parts;
+    if (!animate || oldValue === null || reduceMotion.matches || document.hidden) {
+      card.el.classList.remove("flipping");
+      paint(p.staticTop, value, tag);
+      paint(p.staticBottom, value, tag);
+      paint(p.flapTop, value, tag);
+      paint(p.flapBottom, value, tag);
+      return;
+    }
+    paint(p.staticTop, value, tag);      /* new top waits under the falling leaf */
+    paint(p.flapTop, oldValue, oldTag);  /* old top falls */
+    paint(p.flapBottom, value, tag);     /* new bottom lands */
+    paint(p.staticBottom, oldValue, oldTag);
+    card.el.classList.remove("flipping");
+    void card.el.offsetWidth;            /* restart the animation */
+    card.el.classList.add("flipping");
+  }
+
+  var cardsEl = document.getElementById("cards");
+  var hours = makeCard(!h24);
+  var minutes = makeCard(false);
+  var seconds = withSeconds ? makeCard(false) : null;
+  cardsEl.appendChild(hours.el);
+  cardsEl.appendChild(minutes.el);
+  if (seconds) cardsEl.appendChild(seconds.el);
+
+  var clockEl = document.getElementById("clock");
+  var dateLong = document.getElementById("date-long");
+  var dateShort = document.getElementById("date-short");
+  var weekLong = document.getElementById("week-long");
+  var weekShort = document.getElementById("week-short");
+  var lastDay = "";
+  var lastLabel = "";
+
+  function render(animate) {
+    var now = new Date();
+    var h = now.getHours();
+    var m = now.getMinutes();
+    var hourText, tag = null;
+    if (h24) {
+      hourText = pad(h);
+    } else {
+      tag = h < 12 ? "AM" : "PM";
+      hourText = String(h % 12 || 12);
+    }
+    show(hours, hourText, tag, animate);
+    show(minutes, pad(m), null, animate);
+    if (seconds) show(seconds, pad(now.getSeconds()), null, animate);
+
+    var dayKey = now.toDateString();
+    if (dayKey !== lastDay) {
+      lastDay = dayKey;
+      var day = DAYS[now.getDay()], month = MONTHS[now.getMonth()];
+      var week = isoWeek(now);
+      dateLong.textContent = day + " " + now.getDate() + " " + month + " " + now.getFullYear();
+      dateShort.textContent = day.slice(0, 3) + " " + now.getDate() + " " + month.slice(0, 3) + " " + now.getFullYear();
+      weekLong.textContent = "Week " + week;
+      weekShort.textContent = "Wk " + week;
+    }
+
+    var label = hourText + ":" + pad(m) + (tag ? " " + tag : "") + ", " + dateLong.textContent + ", week " + isoWeek(now);
+    if (label !== lastLabel) {
+      lastLabel = label;
+      clockEl.setAttribute("aria-label", label);
+    }
+  }
+
+  var timer = 0;
+  function schedule() {
+    clearTimeout(timer);
+    /* wake just after each new second so flips land on the real change */
+    timer = setTimeout(function () {
+      render(true);
+      schedule();
+    }, 1000 - (Date.now() % 1000) + 20);
+  }
+
+  function resync() {
+    if (document.hidden) return;
+    render(false);
+    schedule();
+  }
+
+  document.addEventListener("visibilitychange", resync);
+  window.addEventListener("pageshow", resync);
+
+  render(false);
+  schedule();
+})();
+</script>
+</body>
+</html>
